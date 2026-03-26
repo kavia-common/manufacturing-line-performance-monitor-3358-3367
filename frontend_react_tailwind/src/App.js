@@ -15,6 +15,8 @@ import AlertsPage from "./pages/AlertsPage";
 import ReportsPage from "./pages/ReportsPage";
 import AdminPage from "./pages/AdminPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import PredictiveMaintenancePage from "./pages/PredictiveMaintenancePage";
+import MobileOperatorPage from "./pages/MobileOperatorPage";
 
 import "./App.css";
 
@@ -39,6 +41,8 @@ export default function App() {
                 <Route path="shifts" element={<ShiftComparePage />} />
               </Route>
               <Route path="alerts" element={<AlertsPage />} />
+              <Route path="predictive" element={<PredictiveMaintenancePage />} />
+              <Route path="mobile" element={<MobileOperatorPage />} />
               <Route element={<RoleRoute allow={["manager", "admin"]} />}>
                 <Route path="reports" element={<ReportsPage />} />
               </Route>

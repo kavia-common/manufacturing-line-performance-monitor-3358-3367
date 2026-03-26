@@ -3,6 +3,7 @@ import clsx from "clsx";
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "../contexts/AuthContext";
 import { getMockAlerts } from "../services/mockData";
+import { createSocketClient } from "../services/wsClient";
 
 function sevCls(sev) {
   switch (sev) {
@@ -17,19 +18,32 @@ function sevCls(sev) {
   }
 }
 
+function normalizeAlert(a) {
+  if (!a) return null;
+  // Backend Alert shape: {id, ts, severity, lineId, message, acknowledged, meta}
+  // UI expects: {id, ts, severity, title, description, lineId, acknowledged}
+  const id = a.id || a._id || `${a.ts || Date.now()}-${a.message || a.title || "alert"}`;
+  const title =
+    a.title ||
+    (a?.meta?.kind === "predictive.maintenance" ? "Machine likely to fail soon" : a.ruleId || "Alert");
+  const description = a.description || a.message || "";
+  return { ...a, id, title, description };
+}
+
 // PUBLIC_INTERFACE
 export default function AlertsPage() {
-  /** Alerting UI: list, filter, acknowledge. */
-  const { api } = useAuth();
+  /** Alerting UI: list, filter, acknowledge, live updates via Socket.IO when available. */
+  const { api, token } = useAuth();
   const [rows, setRows] = useState([]);
   const [filter, setFilter] = useState({ severity: "all", showAck: false });
 
   const load = async () => {
     try {
       const res = await api.alertsList({ limit: 50 });
-      setRows(Array.isArray(res) ? res : res?.items || []);
+      const items = Array.isArray(res) ? res : res?.items || [];
+      setRows(items.map(normalizeAlert).filter(Boolean));
     } catch {
-      setRows(getMockAlerts({ limit: 16 }));
+      setRows(getMockAlerts({ limit: 16 }).map(normalizeAlert).filter(Boolean));
     }
   };
 
@@ -37,6 +51,37 @@ export default function AlertsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live updates
+  useEffect(() => {
+    const client = createSocketClient({
+      getToken: () => token,
+    });
+
+    const unsub = client.on("alert:update", (payload) => {
+      const a = normalizeAlert(payload?.alert);
+      if (!a) return;
+      setRows((prev) => {
+        const next = [a, ...prev];
+        // dedupe by id
+        const seen = new Set();
+        const out = [];
+        for (const item of next) {
+          if (seen.has(item.id)) continue;
+          seen.add(item.id);
+          out.push(item);
+          if (out.length >= 200) break;
+        }
+        return out;
+      });
+    });
+
+    client.connect();
+    return () => {
+      unsub?.();
+      client.close();
+    };
+  }, [token]);
 
   const filtered = useMemo(() => {
     return rows.filter((a) => {
@@ -60,14 +105,10 @@ export default function AlertsPage() {
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-lg font-extrabold text-slate-900">Alerts</h1>
-          <p className="text-sm text-slate-600">Review and acknowledge operational alerts.</p>
+          <p className="text-sm text-slate-600">Review and acknowledge operational alerts (including predictive maintenance).</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="ocean-input w-40"
-            value={filter.severity}
-            onChange={(e) => setFilter({ ...filter, severity: e.target.value })}
-          >
+          <select className="ocean-input w-40" value={filter.severity} onChange={(e) => setFilter({ ...filter, severity: e.target.value })}>
             <option value="all">All severities</option>
             <option value="critical">Critical</option>
             <option value="high">High</option>
@@ -75,11 +116,7 @@ export default function AlertsPage() {
             <option value="low">Low</option>
           </select>
           <label className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-slate-200">
-            <input
-              type="checkbox"
-              checked={filter.showAck}
-              onChange={(e) => setFilter({ ...filter, showAck: e.target.checked })}
-            />
+            <input type="checkbox" checked={filter.showAck} onChange={(e) => setFilter({ ...filter, showAck: e.target.checked })} />
             Show acknowledged
           </label>
           <button className="ocean-btn-ghost" onClick={load}>
@@ -96,14 +133,14 @@ export default function AlertsPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={clsx("ocean-badge ring-1", sevCls(a.severity))}>{a.severity}</span>
                   <span className="text-sm font-extrabold text-slate-900">{a.title}</span>
-                  <span className="text-xs text-slate-500">
-                    {a.ts ? formatDistanceToNow(new Date(a.ts), { addSuffix: true }) : ""}
-                  </span>
+                  <span className="text-xs text-slate-500">{a.ts ? formatDistanceToNow(new Date(a.ts), { addSuffix: true }) : ""}</span>
+                  {a?.meta?.kind === "predictive.maintenance" ? (
+                    <span className="ocean-badge bg-blue-50 text-blue-800 ring-1 ring-blue-100">predictive</span>
+                  ) : null}
                 </div>
                 <div className="mt-2 text-sm text-slate-600">{a.description}</div>
                 <div className="mt-2 text-xs text-slate-500">
-                  <span className="font-semibold">Line:</span> {a.lineId || "-"} • <span className="font-semibold">ID:</span>{" "}
-                  {a.id}
+                  <span className="font-semibold">Line:</span> {a.lineId || "-"} • <span className="font-semibold">ID:</span> {a.id}
                 </div>
               </div>
 

@@ -110,6 +110,13 @@ export function createApiClient({ getToken } = {}) {
     alertsList: (params) => request("GET", "/alerts", { query: params }),
     alertsAck: (id) => request("POST", `/alerts/${id}/ack`),
 
+    // Predictive maintenance
+    predictGet: (machineId, params) => request("GET", `/predict/${encodeURIComponent(machineId)}`, { query: params }),
+
+    // Mobile operator workflows
+    mobileScan: (payload) => request("POST", "/scan", { body: payload }),
+    mobileQuickLog: (payload) => request("POST", "/quick-log", { body: payload }),
+
     // Reports
     reportsOeePdf: (params) => requestBlob("GET", "/reports/oee.pdf", { query: params }),
   };

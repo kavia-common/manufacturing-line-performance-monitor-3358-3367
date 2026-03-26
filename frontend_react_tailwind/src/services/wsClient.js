@@ -1,119 +1,127 @@
+import { io } from "socket.io-client";
 import { getEnv } from "../config/env";
 
-function isWsScheme(url) {
-  return /^wss?:\/\//i.test(String(url || ""));
+/**
+ * Socket.IO events emitted by backend_node_express/src/realtime/socketServer.js:
+ * - "socket:hello"   { ts, user }
+ * - "kpi:update"     { ts, scope, lineId, shiftId, kpis }
+ * - "alert:update"   { ts, type, alert }
+ * - "activity:update"{ ts, type, entity, data }
+ * - "realtime:event" { ts, event }
+ */
+
+function safeJsonStringify(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "";
+  }
 }
 
-function normalizeWsUrl({ configuredUrl, wsPath = "/ws" }) {
+function safeParse(str) {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHttpUrl(url) {
+  const s = String(url || "").trim();
+  if (!s) return "";
+  // Allow passing just host:port or full URL. If no scheme, prefix with current protocol.
+  if (/^https?:\/\//i.test(s)) return s;
+  const proto = window?.location?.protocol || "http:";
+  return `${proto}//${s.replace(/^\/+/, "")}`;
+}
+
+function resolveSocketEndpoint() {
   /**
-   * Ensures the WS URL is compatible with the current page security context.
+   * Prefer REACT_APP_BACKEND_URL (base URL like https://api.example.com),
+   * fall back to REACT_APP_WS_URL (legacy) and finally to current origin.
    *
-   * Rules:
-   * - If current page is https:, never return ws:// (upgrade to wss:// when possible).
-   * - If no configured WS URL is provided, derive from current location (same origin).
-   * - Return { ok:false } when a safe URL cannot be produced.
+   * Note: Socket.IO needs an HTTP(S) URL for its handshake, not ws(s)://.
    */
-  const pageProtocol = window?.location?.protocol || "http:";
-  const isHttpsPage = pageProtocol === "https:";
+  const { backendUrl, wsUrl } = getEnv();
 
-  // 1) If explicitly configured, normalize and (if needed) upgrade scheme.
-  if (configuredUrl && isWsScheme(configuredUrl)) {
-    let url = String(configuredUrl).trim();
+  if (backendUrl) return normalizeHttpUrl(backendUrl);
 
-    // If we're on https, browsers block ws://. Upgrade to wss://.
-    if (isHttpsPage) {
-      url = url.replace(/^ws:/i, "wss:");
-    }
-
-    // Final safety check: if still ws:// on https, disable.
-    if (isHttpsPage && /^ws:\/\//i.test(url)) {
-      return {
-        ok: false,
-        reason: "blocked_mixed_content",
-        detail: `HTTPS page cannot open insecure WebSocket URL: ${url}`,
-      };
-    }
-
-    return { ok: true, url };
+  // If wsUrl is provided as ws(s)://..., convert to http(s):// for Socket.IO.
+  const ws = String(wsUrl || "").trim();
+  if (ws) {
+    if (/^wss:\/\//i.test(ws)) return ws.replace(/^wss:/i, "https:");
+    if (/^ws:\/\//i.test(ws)) return ws.replace(/^ws:/i, "http:");
+    // If it was already http(s), keep.
+    if (/^https?:\/\//i.test(ws)) return ws;
   }
 
-  // 2) Derive from current location (same origin).
-  // This is a safe default for production deployments where frontend+backend are behind the same host.
-  const host = window?.location?.host;
-  if (host) {
-    const scheme = isHttpsPage ? "wss:" : "ws:";
-    const url = `${scheme}//${host}${wsPath.startsWith("/") ? wsPath : `/${wsPath}`}`;
-    return { ok: true, url };
-  }
-
-  return { ok: false, reason: "no_url", detail: "No WebSocket URL configured and could not derive from location." };
+  // Safe default: same-origin (works when reverse-proxying frontend+backend together)
+  const origin = window?.location?.origin;
+  return origin || "";
 }
 
 // PUBLIC_INTERFACE
-export function createWsClient({ onMessage, onStatus } = {}) {
-  /** Creates a WebSocket client using REACT_APP_WS_URL with reconnect/backoff and HTTPS-safe URL handling. */
-  const { wsUrl: configuredWsUrl } = getEnv();
-  let ws = null;
-  let closedByUser = false;
-  let retry = 0;
-  let retryTimer = null;
+export function createSocketClient({ getToken, onStatus } = {}) {
+  /** Creates a Socket.IO client with reconnect and JWT auth support. */
+  const baseUrl = resolveSocketEndpoint();
+
+  // path defaults to "/socket.io" on the backend
+  const socket = io(baseUrl, {
+    path: "/socket.io",
+    transports: ["websocket", "polling"],
+    autoConnect: false,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 5000,
+    timeout: 15000,
+    auth: (cb) => {
+      const token = getToken?.();
+      cb({ token: token || "" });
+    },
+  });
+
+  const set = (state, detail) => onStatus?.({ state, detail });
+
+  socket.on("connect", () => set("connected"));
+  socket.on("disconnect", (reason) => set("disconnected", reason));
+  socket.on("connect_error", (err) => set("error", err?.message || String(err)));
+  socket.io.on("reconnect_attempt", (attempt) => set("reconnecting", attempt));
+  socket.io.on("reconnect", () => set("connected"));
+  socket.io.on("reconnect_error", (err) => set("error", err?.message || String(err)));
 
   const connect = () => {
-    const normalized = normalizeWsUrl({ configuredUrl: configuredWsUrl, wsPath: "/ws" });
-
-    if (!normalized.ok) {
-      onStatus?.({ state: "disabled", reason: normalized.reason, detail: normalized.detail });
-      return;
-    }
-
-    onStatus?.({ state: "connecting", url: normalized.url });
-    try {
-      ws = new WebSocket(normalized.url);
-    } catch (e) {
-      onStatus?.({ state: "disabled", reason: "constructor_failed", detail: String(e?.message || e) });
-      return;
-    }
-
-    ws.onopen = () => {
-      retry = 0;
-      onStatus?.({ state: "open" });
-    };
-
-    ws.onclose = () => {
-      onStatus?.({ state: "closed" });
-      if (closedByUser) return;
-      const backoff = Math.min(30000, 800 * Math.pow(2, retry++));
-      retryTimer = window.setTimeout(connect, backoff);
-      onStatus?.({ state: "reconnecting", backoffMs: backoff });
-    };
-
-    ws.onerror = () => {
-      // Browser errors for WS are often opaque; still surface a state.
-      onStatus?.({ state: "error" });
-    };
-
-    ws.onmessage = (evt) => {
-      let data = evt.data;
-      try {
-        data = JSON.parse(evt.data);
-      } catch {
-        // keep as string
-      }
-      onMessage?.(data);
-    };
-  };
-
-  const send = (payload) => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
-    ws.send(typeof payload === "string" ? payload : JSON.stringify(payload));
-    return true;
+    set("connecting", { baseUrl, path: "/socket.io" });
+    socket.connect();
   };
 
   const close = () => {
-    closedByUser = true;
-    if (retryTimer) window.clearTimeout(retryTimer);
-    if (ws) ws.close();
+    try {
+      socket.disconnect();
+    } catch {
+      // ignore
+    }
   };
 
-  return { connect, send, close };
+  const emit = (eventName, payload) => {
+    socket.emit(eventName, payload);
+  };
+
+  /**
+   * Helper to subscribe/unsubscribe with a stable handler.
+   */
+  const on = (eventName, handler) => {
+    socket.on(eventName, handler);
+    return () => socket.off(eventName, handler);
+  };
+
+  const debugSnapshot = () => ({
+    id: socket.id,
+    connected: socket.connected,
+    endpoint: `${baseUrl} (path=/socket.io)`,
+    transport: socket.io?.engine?.transport?.name,
+    authTokenPresent: Boolean(getToken?.()),
+  });
+
+  return { socket, connect, close, emit, on, debugSnapshot, _unsafe: { safeJsonStringify, safeParse } };
 }
