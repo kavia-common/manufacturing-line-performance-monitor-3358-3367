@@ -19,7 +19,9 @@ export function getEnv() {
   const backendUrl = process.env.REACT_APP_BACKEND_URL || apiBase;
   const frontendUrl = process.env.REACT_APP_FRONTEND_URL || "";
 
-  // Prefer explicit WS URL, otherwise derive from API base/back-end URL by swapping protocol and appending `/ws`.
+  // Prefer explicit WS URL.
+  // IMPORTANT: If the SPA is served over HTTPS, the WS endpoint must be wss:// (browsers block https:// -> ws:// as mixed content).
+  // Otherwise derive from API base/back-end URL by swapping protocol and appending `/ws`.
   const wsUrlRaw = process.env.REACT_APP_WS_URL || "";
   let wsUrl = wsUrlRaw;
   if (!wsUrl) {
