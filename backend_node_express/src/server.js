@@ -5,12 +5,16 @@ const { getConfig } = require("./config");
 const { createWsServer } = require("./realtime/wsServer");
 const { startAlertEngine } = require("./services/alertEngine");
 const { seedDefaultsIfEmpty } = require("./store/seed");
+const { connectMongo } = require("./db/mongoose");
 
 async function main() {
   const config = getConfig();
 
+  // Connect DB first so routes/services have persistence.
+  await connectMongo();
+
   // Seed minimal defaults for out-of-the-box usage.
-  seedDefaultsIfEmpty();
+  await seedDefaultsIfEmpty();
 
   const app = createApp();
   const server = http.createServer(app);

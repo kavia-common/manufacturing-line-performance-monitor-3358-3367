@@ -13,6 +13,10 @@ function getConfig() {
   /**
    * Returns normalized backend configuration.
    * Uses REACT_APP_* variables for parity with frontend wiring, plus JWT_* / JWT_SECRET.
+   *
+   * MongoDB:
+   * - REACT_APP_MONGODB_URI: full MongoDB connection string (recommended)
+   * - REACT_APP_MONGODB_DB: optional DB name override
    */
   const port = envInt(process.env.REACT_APP_PORT, 8080);
 
@@ -37,6 +41,11 @@ function getConfig() {
     frontendUrl: process.env.REACT_APP_FRONTEND_URL || "",
 
     wsUrl: process.env.REACT_APP_WS_URL || "",
+
+    mongo: {
+      uri: process.env.REACT_APP_MONGODB_URI || "",
+      dbName: process.env.REACT_APP_MONGODB_DB || "",
+    },
 
     jwt: {
       secret: process.env.JWT_SECRET || "",

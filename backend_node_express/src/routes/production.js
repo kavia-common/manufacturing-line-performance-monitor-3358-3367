@@ -1,9 +1,9 @@
 const express = require("express");
 const { z } = require("zod");
-const { db, list, createEvent } = require("../store/memoryStore");
 const { requireAuth } = require("../middleware/auth");
 const { HttpError } = require("../middleware/errors");
 const { publish } = require("../realtime/eventBus");
+const ProductionEvent = require("../models/ProductionEvent");
 
 const router = express.Router();
 
@@ -16,25 +16,62 @@ const CreateSchema = z.object({
   operator: z.string().min(1).optional(),
 });
 
+function toApi(doc) {
+  return {
+    id: String(doc._id),
+    ts: new Date(doc.ts).toISOString(),
+    lineId: doc.lineId,
+    sku: doc.sku,
+    qty: doc.qty,
+    shift: doc.shift,
+    operator: doc.operator,
+  };
+}
+
 // PUBLIC_INTERFACE
-router.get("/", requireAuth(), (req, res) => {
+router.get("/", requireAuth(), async (req, res, next) => {
   /** Lists production events. */
-  const limit = Number(req.query.limit || 50);
-  const items = list(db.production, { limit });
-  res.json({ items });
+  try {
+    const limit = Number(req.query.limit || 50);
+    const docs = await ProductionEvent.find()
+      .sort({ ts: -1 })
+      .limit(limit)
+      .lean();
+    res.json({ items: docs.map(toApi) });
+  } catch (e) {
+    next(e);
+  }
 });
 
 // PUBLIC_INTERFACE
-router.post("/", requireAuth(), (req, res, next) => {
+router.post("/", requireAuth(), async (req, res, next) => {
   /** Creates a production event. */
   try {
     const parsed = CreateSchema.safeParse(req.body || {});
     if (!parsed.success) throw new HttpError(400, "Invalid payload", parsed.error.flatten());
-    const doc = createEvent(db.production, parsed.data);
-    publish({ type: "production.created", ts: new Date().toISOString(), lineId: doc.lineId, payload: doc });
-    // Also emit OEE update for dashboards
-    publish({ type: "oee.update", ts: new Date().toISOString(), lineId: doc.lineId });
-    res.status(201).json(doc);
+
+    const ts = parsed.data.ts ? new Date(parsed.data.ts) : new Date();
+
+    const doc = await ProductionEvent.create({
+      ts,
+      lineId: parsed.data.lineId,
+      sku: parsed.data.sku,
+      qty: parsed.data.qty,
+      shift: parsed.data.shift,
+      operator: parsed.data.operator,
+    });
+
+    const apiDoc = toApi(doc.toObject());
+
+    publish({
+      type: "production.created",
+      ts: new Date().toISOString(),
+      lineId: apiDoc.lineId,
+      payload: apiDoc,
+    });
+    publish({ type: "oee.update", ts: new Date().toISOString(), lineId: apiDoc.lineId });
+
+    res.status(201).json(apiDoc);
   } catch (e) {
     next(e);
   }

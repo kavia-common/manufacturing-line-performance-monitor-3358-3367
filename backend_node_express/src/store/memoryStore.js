@@ -1,3 +1,10 @@
+/**
+ * DEPRECATED:
+ * This module previously provided in-memory persistence.
+ * The backend now uses MongoDB via Mongoose models under src/models/.
+ *
+ * Kept temporarily for reference; do not use for production.
+ */
 const { randomUUID } = require("crypto");
 
 function nowIso() {
