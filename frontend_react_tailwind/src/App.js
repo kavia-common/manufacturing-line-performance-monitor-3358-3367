@@ -1,49 +1,56 @@
-import React, { useState, useEffect } from 'react';
-import logo from './logo.svg';
-import './App.css';
+import React from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { AuthProvider } from "./contexts/AuthContext";
+import AppShell from "./components/Layout/AppShell";
+import { ProtectedRoute, RoleRoute } from "./components/Auth/ProtectedRoute";
+
+import LoginPage from "./pages/LoginPage";
+import AboutPage from "./pages/AboutPage";
+import DashboardPage from "./pages/DashboardPage";
+import ProductionPage from "./pages/ProductionPage";
+import DowntimePage from "./pages/DowntimePage";
+import QualityPage from "./pages/QualityPage";
+import ShiftComparePage from "./pages/ShiftComparePage";
+import AlertsPage from "./pages/AlertsPage";
+import ReportsPage from "./pages/ReportsPage";
+import AdminPage from "./pages/AdminPage";
+import NotFoundPage from "./pages/NotFoundPage";
+
+import "./App.css";
 
 // PUBLIC_INTERFACE
-function App() {
-  const [theme, setTheme] = useState('light');
-
-  // Effect to apply theme to document element
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
-
-  // PUBLIC_INTERFACE
-  const toggleTheme = () => {
-    setTheme(prevTheme => prevTheme === 'light' ? 'dark' : 'light');
-  };
-
+export default function App() {
+  /** App entry: router + auth provider + protected layout routes. */
   return (
-    <div className="App">
-      <header className="App-header">
-        <button 
-          className="theme-toggle" 
-          onClick={toggleTheme}
-          aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-        >
-          {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
-        </button>
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <p>
-          Current theme: <strong>{theme}</strong>
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/about" element={<AboutPage />} />
+
+          <Route element={<ProtectedRoute />}>
+            <Route path="/app" element={<AppShell />}>
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="production" element={<ProductionPage />} />
+              <Route path="downtime" element={<DowntimePage />} />
+              <Route path="quality" element={<QualityPage />} />
+              <Route element={<RoleRoute allow={["supervisor", "manager", "admin"]} />}>
+                <Route path="shifts" element={<ShiftComparePage />} />
+              </Route>
+              <Route path="alerts" element={<AlertsPage />} />
+              <Route element={<RoleRoute allow={["manager", "admin"]} />}>
+                <Route path="reports" element={<ReportsPage />} />
+              </Route>
+              <Route element={<RoleRoute allow={["admin"]} />}>
+                <Route path="admin" element={<AdminPage />} />
+              </Route>
+            </Route>
+          </Route>
+
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
-
-export default App;
