@@ -1,51 +1,43 @@
 const express = require("express");
-const { subscribe } = require("../realtime/eventBus");
 const { getConfig } = require("../config");
 
 const router = express.Router();
 
 // PUBLIC_INTERFACE
 router.get("/", (req, res) => {
-  /** Returns realtime connection help and configured endpoints. */
+  /** Returns realtime connection help and configured endpoints for Socket.IO. */
   const config = getConfig();
+
   res.json({
-    ws: {
-      path: "/ws",
-      note: "Frontend uses REACT_APP_WS_URL (e.g., ws://host:port/ws).",
-    },
-    sse: {
-      path: "/realtime/stream",
-      note: "SSE stream of the same events as WS (text/event-stream).",
+    socketio: {
+      path: "/socket.io",
+      auth: {
+        note:
+          "JWT auth required when JWT_SECRET is configured. Provide token via socket.io client `auth: { token }` (recommended) or `Authorization: Bearer <token>` header.",
+      },
+      events: [
+        {
+          name: "kpi:update",
+          payload: "{ ts, scope, lineId, shiftId, kpis }",
+          purpose: "Live dashboard KPI cards (Availability/Performance/Quality/OEE).",
+        },
+        {
+          name: "alert:update",
+          payload: "{ ts, type, alert }",
+          purpose: "Live alert list/toasts (e.g., OEE<75%, predictive maintenance).",
+        },
+        {
+          name: "activity:update",
+          payload: "{ ts, type, entity, data }",
+          purpose:
+            "Live activity feed updates (production runs, downtime, defects, quick logs).",
+        },
+      ],
     },
     configured: {
-      wsUrl: config.wsUrl || null,
       frontendUrl: config.frontendUrl || null,
+      backendUrl: config.backendUrl || config.apiBase || null,
     },
-  });
-});
-
-// PUBLIC_INTERFACE
-router.get("/stream", (req, res) => {
-  /** SSE stream for realtime events (alternative to WebSocket). */
-  res.status(200);
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-
-  // Initial event
-  res.write(`event: hello\ndata: ${JSON.stringify({ type: "sse.hello", ts: new Date().toISOString() })}\n\n`);
-
-  const unsub = subscribe((evt) => {
-    res.write(`event: message\ndata: ${JSON.stringify(evt)}\n\n`);
-  });
-
-  const keepAlive = setInterval(() => {
-    res.write(`event: ping\ndata: ${JSON.stringify({ type: "sse.ping", ts: new Date().toISOString() })}\n\n`);
-  }, 25_000);
-
-  req.on("close", () => {
-    clearInterval(keepAlive);
-    unsub();
   });
 });
 

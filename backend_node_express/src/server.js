@@ -2,7 +2,7 @@ const http = require("http");
 
 const { createApp } = require("./app");
 const { getConfig } = require("./config");
-const { createWsServer } = require("./realtime/wsServer");
+const { createSocketServer } = require("./realtime/socketServer");
 const { startAlertEngine } = require("./services/alertEngine");
 const { seedDefaultsIfEmpty } = require("./store/seed");
 const { connectMongo } = require("./db/mongoose");
@@ -19,8 +19,8 @@ async function main() {
   const app = createApp();
   const server = http.createServer(app);
 
-  // WebSocket server at /ws (compatible with frontend wsClient.js)
-  createWsServer({ server, path: "/ws" });
+  // Socket.IO server (JWT-authenticated) for realtime KPIs/alerts/activity updates
+  createSocketServer({ server, path: "/socket.io" });
 
   // Alert engine evaluates rules and emits alerts + realtime events
   startAlertEngine();
