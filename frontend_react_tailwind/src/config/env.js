@@ -17,8 +17,19 @@ export function getEnv() {
   /** Returns normalized environment configuration for API/WS and feature flags. */
   const apiBase = process.env.REACT_APP_API_BASE || process.env.REACT_APP_BACKEND_URL || "";
   const backendUrl = process.env.REACT_APP_BACKEND_URL || apiBase;
-  const wsUrl = process.env.REACT_APP_WS_URL || "";
   const frontendUrl = process.env.REACT_APP_FRONTEND_URL || "";
+
+  // Prefer explicit WS URL, otherwise derive from API base/back-end URL by swapping protocol and appending `/ws`.
+  const wsUrlRaw = process.env.REACT_APP_WS_URL || "";
+  let wsUrl = wsUrlRaw;
+  if (!wsUrl) {
+    const src = backendUrl || apiBase;
+    if (src) {
+      // http(s)://host:port -> ws(s)://host:port/ws
+      wsUrl = src.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
+      wsUrl = wsUrl.replace(/\/+$/, "") + "/ws";
+    }
+  }
 
   return {
     apiBase,

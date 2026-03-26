@@ -58,13 +58,40 @@ export function createApiClient({ getToken } = {}) {
     return safeJson(res);
   };
 
+  const requestBlob = async (method, path, { query, headers } = {}) => {
+    const url = new URL(buildUrl(apiBase, path), window.location.origin);
+    if (query && typeof query === "object") {
+      Object.entries(query).forEach(([k, v]) => {
+        if (v === undefined || v === null || v === "") return;
+        url.searchParams.set(k, String(v));
+      });
+    }
+
+    const token = getToken?.();
+    const res = await fetch(url.toString(), {
+      method,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(headers || {}),
+      },
+    });
+
+    if (!res.ok) {
+      const parsed = await safeJson(res);
+      throw new ApiError(`Request failed: ${method} ${path}`, { status: res.status, body: parsed });
+    }
+
+    // Backend returns application/pdf; we expose raw Blob for download/display.
+    return res.blob();
+  };
+
   return {
     get: (path, opts) => request("GET", path, opts),
     post: (path, opts) => request("POST", path, opts),
     put: (path, opts) => request("PUT", path, opts),
     del: (path, opts) => request("DELETE", path, opts),
 
-    // Common domain endpoints (best-effort; backend may differ — UI gracefully falls back to mock)
+    // Common domain endpoints
     authLogin: (payload) => request("POST", "/auth/login", { body: payload }),
     authMe: () => request("GET", "/auth/me"),
 
@@ -82,5 +109,8 @@ export function createApiClient({ getToken } = {}) {
 
     alertsList: (params) => request("GET", "/alerts", { query: params }),
     alertsAck: (id) => request("POST", `/alerts/${id}/ack`),
+
+    // Reports
+    reportsOeePdf: (params) => requestBlob("GET", "/reports/oee.pdf", { query: params }),
   };
 }
