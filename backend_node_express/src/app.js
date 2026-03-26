@@ -18,6 +18,8 @@ const oeeRoutes = require("./routes/oee");
 const alertsRoutes = require("./routes/alerts");
 const reportsRoutes = require("./routes/reports");
 const realtimeRoutes = require("./routes/realtime");
+const predictRoutes = require("./routes/predict");
+const mobileRoutes = require("./routes/mobile");
 
 function buildCorsOptions(config) {
   const allowOrigin = (origin, cb) => {
@@ -114,6 +116,12 @@ function createApp() {
   app.use("/oee", oeeRoutes);
   app.use("/alerts", alertsRoutes);
   app.use("/reports", reportsRoutes);
+
+  // New API endpoints (required by spec)
+  // Predictive maintenance
+  app.use("/api", predictRoutes);
+  // Mobile operator workflows
+  app.use("/api", mobileRoutes);
 
   // Realtime docs + SSE connect route
   app.use("/realtime", realtimeRoutes);

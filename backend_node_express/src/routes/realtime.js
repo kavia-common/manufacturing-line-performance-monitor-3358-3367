@@ -30,7 +30,7 @@ router.get("/", (req, res) => {
           name: "activity:update",
           payload: "{ ts, type, entity, data }",
           purpose:
-            "Live activity feed updates (production runs, downtime, defects, quick logs).",
+            "Live activity feed updates (production runs, downtime, defects, mobile quick logs, predictive predictions).",
         },
       ],
     },
